@@ -1,4 +1,4 @@
-# new-vps-harden
+# new-vps-harden - VPS SSH Hardening Script
 
 [![Release](https://img.shields.io/github/v/release/superchaospc/new-vps-harden?sort=semver)](https://github.com/superchaospc/new-vps-harden/releases)
 [![ShellCheck](https://img.shields.io/badge/shellcheck-passing-brightgreen)](https://www.shellcheck.net/)
@@ -8,7 +8,13 @@
 
 一个面向新买 Debian/Ubuntu VPS 的 SSH 快速加固脚本。
 
-它适合公网 SSH 暴露、默认 22 端口会被持续扫描的 VPS。脚本会关闭密码登录、限制 root 密码登录、调整 SSH 未认证连接上限、安装并启用 fail2ban。默认会新增高位 SSH 端口，同时保留 22 端口，避免你在验证新端口前把自己锁在外面。
+`new-vps-harden` is a small Bash script for hardening SSH on fresh Debian and Ubuntu VPS servers. It is designed for public cloud VPS instances where SSH is exposed to the internet and the default port `22` is constantly scanned.
+
+它适合公网 SSH 暴露、默认 22 端口会被持续扫描的新 VPS。脚本会关闭密码登录、限制 root 密码登录、调整 SSH 未认证连接上限、安装并启用 fail2ban。默认会新增高位 SSH 端口，同时保留 22 端口，避免你在验证新端口前把自己锁在外面。
+
+## Keywords
+
+`vps hardening`, `ssh hardening`, `linux server security`, `debian vps`, `ubuntu vps`, `fail2ban`, `disable ssh password login`, `change ssh port`, `server bootstrap`, `vps security`
 
 ## When To Use
 
@@ -32,6 +38,11 @@
 
 ## Features
 
+- Harden SSH on fresh Debian/Ubuntu VPS servers
+- Disable SSH password authentication
+- Restrict root password login
+- Change the SSH port while keeping port `22` as a temporary fallback
+- Install and enable fail2ban for SSH brute-force protection
 - 默认新增 SSH 端口 `52222`
 - 改端口时保留 `22`，方便回退
 - 禁用 SSH 密码登录
