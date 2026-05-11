@@ -10,7 +10,7 @@
 
 `new-vps-harden` is a small Bash script for hardening SSH on fresh Debian and Ubuntu VPS servers. It is designed for public cloud VPS instances where SSH is exposed to the internet and the default port `22` is constantly scanned.
 
-它适合公网 SSH 暴露、默认 22 端口会被持续扫描的新 VPS。脚本会关闭密码登录、限制 root 密码登录、调整 SSH 未认证连接上限、安装并启用 fail2ban。默认会新增高位 SSH 端口，同时保留 22 端口，避免你在验证新端口前把自己锁在外面。
+它适合公网 SSH 暴露、默认 22 端口会被持续扫描的新 VPS。脚本会关闭密码登录、限制 root 密码登录、调整 SSH 未认证连接上限、安装并启用 fail2ban。不传端口时，脚本会先检测当前 SSH 端口：如果仍在使用 `22`，会新增默认高位端口 `52222`；如果已经是非 22 端口，则沿用当前端口，只做其它加固。
 
 ## Keywords
 
@@ -41,10 +41,12 @@
 - Harden SSH on fresh Debian/Ubuntu VPS servers
 - Disable SSH password authentication
 - Restrict root password login
-- Change the SSH port while keeping port `22` as a temporary fallback
+- Auto-detect the current SSH port before changing it
+- Change the SSH port while keeping the current port as a temporary fallback
 - Install and enable fail2ban for SSH brute-force protection
-- 默认新增 SSH 端口 `52222`
-- 改端口时保留 `22`，方便回退
+- 当前 SSH 仍使用 `22` 时,默认新增 SSH 端口 `52222`
+- 当前 SSH 已经是非 `22` 端口时,默认沿用当前端口
+- 改端口时保留旧端口,方便回退
 - 禁用 SSH 密码登录
 - 禁止 root 使用密码登录
 - 调整 `MaxStartups` 和 `LoginGraceTime`
@@ -88,7 +90,12 @@ ssh root@<ip> '
 '
 ```
 
-默认会新增 `52222` 端口。你也可以指定端口：
+默认行为：
+
+- 如果当前 SSH 仍在 `22` 端口，脚本会新增 `52222`，并暂时保留 `22`。
+- 如果当前 SSH 已经不是 `22` 端口，脚本会沿用当前端口，只做其它加固。
+
+你也可以显式指定端口：
 
 ```bash
 bash /root/new-vps-harden.sh 12345
@@ -102,7 +109,7 @@ bash /root/new-vps-harden.sh 22
 
 ## After Running
 
-如果你使用了新端口，脚本跑完后会同时监听 `22` 和新端口。请按这个顺序收尾：
+如果脚本新增了端口，跑完后会同时监听旧端口和新端口。请按这个顺序收尾：
 
 1. 确认云厂商安全组或面板防火墙已经放行新端口。
 2. 从一个新终端窗口验证新端口能登录。
@@ -111,10 +118,10 @@ bash /root/new-vps-harden.sh 22
 ssh -p 52222 root@<ip>
 ```
 
-3. 验证成功后，在 VPS 上删除 `Port 22` 并重启 SSH。
+3. 验证成功后，在 VPS 上编辑 drop-in 配置，删除不再需要的旧端口 `Port` 行，并重启 SSH。
 
 ```bash
-sed -i '/^Port 22$/d' /etc/ssh/sshd_config.d/99-hardening.conf
+nano /etc/ssh/sshd_config.d/99-hardening.conf
 systemctl restart ssh || systemctl restart sshd
 ```
 
