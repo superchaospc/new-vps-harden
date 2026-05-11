@@ -10,6 +10,26 @@
 
 它适合公网 SSH 暴露、默认 22 端口会被持续扫描的 VPS。脚本会关闭密码登录、限制 root 密码登录、调整 SSH 未认证连接上限、安装并启用 fail2ban。默认会新增高位 SSH 端口，同时保留 22 端口，避免你在验证新端口前把自己锁在外面。
 
+## When To Use
+
+适合使用这个脚本的 VPS：
+
+- 新买的 Debian/Ubuntu VPS
+- 公网 IP 直接暴露 SSH
+- SSH 仍在默认 `22` 端口
+- VPS 默认允许密码登录
+- 机器来自小厂、低价海外机房，公网扫描流量较多
+- 你打算长期保留这台机器，而不是用完就删
+
+不一定需要使用这个脚本的 VPS：
+
+- 云厂商安全组已经只允许你的固定 IP 访问 SSH
+- SSH 只在内网、VPN、Tailscale 或 WireGuard 后面开放
+- 机器是临时测试机，短时间内会销毁
+- 你已经有 Ansible、Terraform、cloud-init 等安全基线
+- 镜像不是 Debian/Ubuntu，或者不是 systemd 系统
+- 镜像默认已经禁用密码登录，并且你只使用非 root 用户登录
+
 ## Features
 
 - 默认新增 SSH 端口 `52222`
