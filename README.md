@@ -39,23 +39,34 @@ ssh-copy-id root@<ip>
 ssh root@<ip>
 ```
 
-确认密钥登录可用后，把脚本传上去并执行：
+确认密钥登录可用后，在 VPS 上直接从 GitHub Release 下载并执行：
 
 ```bash
-scp new-vps-harden.sh root@<ip>:/root/
-ssh root@<ip> 'bash /root/new-vps-harden.sh'
+curl -fsSL -o /root/new-vps-harden.sh \
+  https://github.com/superchaospc/new-vps-harden/releases/latest/download/new-vps-harden.sh
+
+bash /root/new-vps-harden.sh
+```
+
+也可以从本机一条命令远程执行：
+
+```bash
+ssh root@<ip> '
+  curl -fsSL -o /root/new-vps-harden.sh https://github.com/superchaospc/new-vps-harden/releases/latest/download/new-vps-harden.sh &&
+  bash /root/new-vps-harden.sh
+'
 ```
 
 默认会新增 `52222` 端口。你也可以指定端口：
 
 ```bash
-ssh root@<ip> 'bash /root/new-vps-harden.sh 12345'
+bash /root/new-vps-harden.sh 12345
 ```
 
 如果只想保留 22 端口，不换端口：
 
 ```bash
-ssh root@<ip> 'bash /root/new-vps-harden.sh 22'
+bash /root/new-vps-harden.sh 22
 ```
 
 ## After Running
