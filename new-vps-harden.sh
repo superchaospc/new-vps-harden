@@ -14,17 +14,46 @@
 
 set -euo pipefail
 
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo "ERR: 需要 bash 4 或更高版本。" >&2
+  exit 1
+fi
+
 DEFAULT_PORT=52222
 REQUESTED_PORT="${1:-}"
+DROPIN=/etc/ssh/sshd_config.d/99-hardening.conf
 
 get_ports() {
   sshd -T 2>/dev/null | awk 'tolower($1)=="port" {print $2}' | sort -nu | tr '\n' ' '
+}
+
+get_external_config_ports() {
+  local file
+  local files=()
+  [[ -e /etc/ssh/sshd_config ]] && files+=(/etc/ssh/sshd_config)
+  for file in /etc/ssh/sshd_config.d/*.conf; do
+    [[ -e "$file" && "$file" != "$DROPIN" ]] && files+=("$file")
+  done
+  ((${#files[@]} == 0)) && return 0
+  awk 'tolower($1)=="port" && $2 ~ /^[0-9]+$/ {print $2}' "${files[@]}" 2>/dev/null | sort -nu | tr '\n' ' '
+}
+
+get_listening_ports() {
+  ss -H -tlnp 2>/dev/null | awk '/users:\(\("sshd"/ {n=split($4,a,":"); print a[n]}' | sort -nu | tr '\n' ' '
 }
 
 has_port() {
   local ports=" $1 "
   local port="$2"
   [[ "$ports" == *" $port "* ]]
+}
+
+restore_dropin() {
+  if [[ "${DROPIN_EXISTED:-0}" == "1" ]]; then
+    mv -f "$DROPIN_BACKUP" "$DROPIN"
+  else
+    rm -f "$DROPIN"
+  fi
 }
 
 # --- 0. 前置检查 -------------------------------------------------------------
@@ -40,6 +69,7 @@ if [[ -z "$CURRENT_PORTS" ]]; then
   echo "ERR: 无法读取当前 sshd 端口,请检查 sshd 配置。" >&2
   exit 1
 fi
+EXTERNAL_CONFIG_PORTS=$(get_external_config_ports)
 
 if [[ -z "$REQUESTED_PORT" ]]; then
   if has_port "$CURRENT_PORTS" 22; then
@@ -55,7 +85,7 @@ else
 fi
 
 if ! [[ "$PORT" =~ ^[0-9]+$ ]] || { (( 10#$PORT != 22 )) && (( 10#$PORT < 1024 || 10#$PORT > 65535 )); }; then
-  echo "ERR: 非法端口: $PORT (允许 22 或 1024-65535,避免占用 80/443/53 等常见服务端口)" >&2
+  echo "ERR: 非法端口: $PORT (允许 22 或 1024-65535,避免占用常见低位系统端口)" >&2
   exit 1
 fi
 PORT=$((10#$PORT))   # 归一化,去掉前导零
@@ -67,6 +97,7 @@ fi
 
 echo "----- preflight -----"
 printf "  Current SSH ports = %s\n" "$CURRENT_PORTS"
+printf "  External config ports = %s\n" "${EXTERNAL_CONFIG_PORTS:-none}"
 printf "  Target SSH port   = %s\n" "$PORT"
 if [[ "$AUTO_PORT_CHANGED" == "1" ]]; then
   echo "  Mode              = auto: current port includes 22, adding default high port"
@@ -77,17 +108,33 @@ else
 fi
 echo "---------------------"
 
-# --- 1. 写 sshd drop-in ------------------------------------------------------
+# --- 1. 准备 sshd 服务 / 防火墙 ----------------------------------------------
+SVC=ssh
+systemctl list-unit-files 2>/dev/null | grep -q '^sshd\.service' \
+  && ! systemctl list-unit-files 2>/dev/null | grep -q '^ssh\.service' \
+  && SVC=sshd
+
+if [[ "$CHANGE_PORT" == "1" ]] && command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+  echo "UFW active: allowing ${PORT}/tcp"
+  ufw allow "${PORT}/tcp"
+fi
+
+# --- 2. 写 sshd drop-in ------------------------------------------------------
 mkdir -p /etc/ssh/sshd_config.d
-DROPIN=/etc/ssh/sshd_config.d/99-hardening.conf
+DROPIN_BACKUP="${DROPIN}.bak.$(date +%Y%m%d%H%M%S)"
+DROPIN_EXISTED=0
+if [[ -e "$DROPIN" ]]; then
+  cp -a "$DROPIN" "$DROPIN_BACKUP"
+  DROPIN_EXISTED=1
+fi
 
 {
   if [[ "$CHANGE_PORT" == "1" ]]; then
-    # 同时保留旧端口,防锁出去;确认新端口通后再手动删旧 Port 行
+    # 同时保留旧端口,但避免重复写入主配置/其它 drop-in 已声明的 Port。
     for current_port in $CURRENT_PORTS; do
-      echo "Port ${current_port}"
+      has_port "$EXTERNAL_CONFIG_PORTS" "$current_port" || echo "Port ${current_port}"
     done
-    echo "Port ${PORT}"
+    has_port "$EXTERNAL_CONFIG_PORTS" "$PORT" || echo "Port ${PORT}"
   fi
   cat <<EOF
 PasswordAuthentication no
@@ -99,21 +146,35 @@ LoginGraceTime 20
 EOF
 } > "$DROPIN"
 
-# --- 2. 重启 sshd ------------------------------------------------------------
-sshd -t
-SVC=ssh
-systemctl list-unit-files 2>/dev/null | grep -q '^sshd\.service' \
-  && ! systemctl list-unit-files 2>/dev/null | grep -q '^ssh\.service' \
-  && SVC=sshd
-systemctl disable --now ssh.socket 2>/dev/null || true
-systemctl restart "$SVC"
-sleep 1
+# --- 3. 重启 sshd ------------------------------------------------------------
+if ! sshd -t; then
+  echo "ABORT: 新 sshd 配置语法检查失败,正在恢复旧配置。" >&2
+  restore_dropin
+  exit 1
+fi
 
-# --- 3. 用 sshd -T 验证【实际生效值】 ---------------------------------------
-get() { sshd -T 2>/dev/null | awk -v k="${1,,}" 'tolower($1)==k {print $2; exit}'; }
+systemctl disable --now ssh.socket 2>/dev/null || true
+if ! systemctl restart "$SVC"; then
+  echo "ABORT: sshd 重启失败,正在恢复旧配置并尝试恢复 SSH 服务。" >&2
+  restore_dropin
+  if sshd -t && systemctl restart "$SVC"; then
+    echo "已恢复旧配置并重启 SSH 服务。" >&2
+  else
+    echo "CRITICAL: 旧配置恢复后 SSH 服务仍无法启动,请使用云厂商控制台排查。" >&2
+  fi
+  exit 1
+fi
+
+# --- 4. 用 sshd -T 验证【实际生效值】 ---------------------------------------
+get() { sshd -T 2>/dev/null | awk -v k="$1" 'tolower($1)==tolower(k) {print $2; exit}'; }
 PW=$(get passwordauthentication)
 ROOT=$(get permitrootlogin)
-LISTEN=$(ss -tlnp 2>/dev/null | awk '/sshd/ {n=split($4,a,":"); print a[n]}' | sort -u | tr '\n' ' ')
+LISTEN=""
+for _ in 1 2 3 4 5; do
+  LISTEN=$(get_listening_ports)
+  [[ -n "$LISTEN" ]] && break
+  sleep 1
+done
 
 echo "----- effective config -----"
 printf "  PasswordAuth = %s  (want: no)\n" "$PW"
@@ -125,7 +186,7 @@ echo "----------------------------"
 [[ "$ROOT" == "prohibit-password" ]]   || { echo "ABORT: PermitRootLogin 未限制"; exit 1; }
 echo " $LISTEN " | grep -q " $PORT "   || { echo "ABORT: 端口 $PORT 未真正监听"; exit 1; }
 
-# --- 4. fail2ban -------------------------------------------------------------
+# --- 5. fail2ban -------------------------------------------------------------
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq fail2ban
@@ -135,6 +196,7 @@ cat > /etc/fail2ban/jail.d/sshd.local <<EOF
 [sshd]
 enabled  = true
 port     = ${JAIL_PORTS}
+backend  = systemd
 maxretry = 4
 findtime = 10m
 bantime  = 1h
@@ -144,7 +206,7 @@ systemctl restart fail2ban
 sleep 1
 fail2ban-client status sshd || true
 
-# --- 5. 汇报 + 下一步 --------------------------------------------------------
+# --- 6. 汇报 + 下一步 --------------------------------------------------------
 echo
 echo "============================================================"
 echo "  SSH 加固完成"

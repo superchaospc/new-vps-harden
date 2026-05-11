@@ -44,6 +44,9 @@
 - Auto-detect the current SSH port before changing it
 - Change the SSH port while keeping the current port as a temporary fallback
 - Install and enable fail2ban for SSH brute-force protection
+- Use fail2ban's systemd backend for modern Debian/Ubuntu images
+- Open the new SSH port in UFW when UFW is active
+- Roll back the SSH drop-in if validation or restart fails
 - 当前 SSH 仍使用 `22` 时,默认新增 SSH 端口 `52222`
 - 当前 SSH 已经是非 `22` 端口时,默认沿用当前端口
 - 改端口时保留旧端口,方便回退
@@ -51,6 +54,9 @@
 - 禁止 root 使用密码登录
 - 调整 `MaxStartups` 和 `LoginGraceTime`
 - 安装并重启 `fail2ban`
+- fail2ban 使用 `backend = systemd`
+- 如果 UFW 已启用,自动放行新 SSH 端口
+- 如果 `sshd -t` 或 SSH 重启失败,自动恢复旧 drop-in 配置
 - 使用 `sshd -T` 和 `ss` 验证实际生效配置
 - 兼容 `ssh.service` / `sshd.service`
 
@@ -142,6 +148,7 @@ Host my-vps
 - 脚本针对刚买的新 VPS 默认镜像设计，不追求覆盖复杂自定义镜像。
 - 如果 VPS 已经在安全组白名单、VPN、Tailscale 或 WireGuard 后面，这个脚本不一定必要。
 - 如果 `apt-get` 源临时失败，SSH 加固可能已经完成，但 fail2ban 安装会中断。
+- 如果本机 UFW 已启用，脚本会在新增 SSH 端口时自动执行 `ufw allow <port>/tcp`。
 
 ## License
 
