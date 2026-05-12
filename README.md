@@ -47,6 +47,7 @@
 - Use fail2ban's systemd backend for modern Debian/Ubuntu images
 - Open the new SSH port in UFW when UFW is active
 - Roll back the SSH drop-in if validation or restart fails
+- Write early SSH settings to `00-hardening.conf` so cloud image drop-ins cannot override them
 - 当前 SSH 仍使用 `22` 时,默认新增 SSH 端口 `52222`
 - 当前 SSH 已经是非 `22` 端口时,默认沿用当前端口
 - 改端口时保留旧端口,方便回退
@@ -57,6 +58,7 @@
 - fail2ban 使用 `backend = systemd`
 - 如果 UFW 已启用,自动放行新 SSH 端口
 - 如果 `sshd -t` 或 SSH 重启失败,自动恢复旧 drop-in 配置
+- 使用 `00-hardening.conf` 抢在云镜像自带的 `00-*` 配置前生效
 - 使用 `sshd -T` 和 `ss` 验证实际生效配置
 - 兼容 `ssh.service` / `sshd.service`
 
@@ -149,6 +151,7 @@ Host my-vps
 - 如果 VPS 已经在安全组白名单、VPN、Tailscale 或 WireGuard 后面，这个脚本不一定必要。
 - 如果 `apt-get` 源临时失败，SSH 加固可能已经完成，但 fail2ban 安装会中断。
 - 如果本机 UFW 已启用，脚本会在新增 SSH 端口时自动执行 `ufw allow <port>/tcp`。
+- Ubuntu Noble 等云镜像可能自带 `00-permit-root-password-auth.conf`，脚本会使用更早的 `00-hardening.conf` 避免加固项被覆盖。
 
 ## License
 

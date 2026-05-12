@@ -9,6 +9,7 @@
 # 安全设计:
 # - 不传端口时先检测当前 SSH 端口,已非 22 则沿用当前端口
 # - 改端口时【同时保留当前端口】,验证新端口可用后再手动删除旧端口,避免锁出
+# - 使用 00-hardening.conf 抢在云镜像自带的 00-* drop-in 前生效
 # - 改完用 sshd -T 抓实际生效值,关键项不达标直接 abort
 # - 兼容 ssh.service / sshd.service
 
@@ -21,7 +22,8 @@ fi
 
 DEFAULT_PORT=52222
 REQUESTED_PORT="${1:-}"
-DROPIN=/etc/ssh/sshd_config.d/99-hardening.conf
+DROPIN=/etc/ssh/sshd_config.d/00-hardening.conf
+LEGACY_DROPIN=/etc/ssh/sshd_config.d/99-hardening.conf
 
 get_ports() {
   sshd -T 2>/dev/null | awk 'tolower($1)=="port" {print $2}' | sort -nu | tr '\n' ' '
@@ -32,7 +34,7 @@ get_external_config_ports() {
   local files=()
   [[ -e /etc/ssh/sshd_config ]] && files+=(/etc/ssh/sshd_config)
   for file in /etc/ssh/sshd_config.d/*.conf; do
-    [[ -e "$file" && "$file" != "$DROPIN" ]] && files+=("$file")
+    [[ -e "$file" && "$file" != "$DROPIN" && "$file" != "$LEGACY_DROPIN" ]] && files+=("$file")
   done
   ((${#files[@]} == 0)) && return 0
   awk 'tolower($1)=="port" && $2 ~ /^[0-9]+$/ {print $2}' "${files[@]}" 2>/dev/null | sort -nu | tr '\n' ' '
@@ -121,6 +123,10 @@ DROPIN_EXISTED=0
 if [[ -e "$DROPIN" ]]; then
   cp -a "$DROPIN" "$DROPIN_BACKUP"
   DROPIN_EXISTED=1
+fi
+if [[ -e "$LEGACY_DROPIN" ]]; then
+  cp -a "$LEGACY_DROPIN" "${LEGACY_DROPIN}.bak.$(date +%Y%m%d%H%M%S)"
+  rm -f "$LEGACY_DROPIN"
 fi
 
 {
