@@ -108,16 +108,11 @@ else
 fi
 echo "---------------------"
 
-# --- 1. 准备 sshd 服务 / 防火墙 ----------------------------------------------
+# --- 1. 准备 sshd 服务 --------------------------------------------------------
 SVC=ssh
 systemctl list-unit-files 2>/dev/null | grep -q '^sshd\.service' \
   && ! systemctl list-unit-files 2>/dev/null | grep -q '^ssh\.service' \
   && SVC=sshd
-
-if [[ "$CHANGE_PORT" == "1" ]] && command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
-  echo "UFW active: allowing ${PORT}/tcp"
-  ufw allow "${PORT}/tcp"
-fi
 
 # --- 2. 写 sshd drop-in ------------------------------------------------------
 mkdir -p /etc/ssh/sshd_config.d
@@ -134,8 +129,10 @@ fi
     for current_port in $CURRENT_PORTS; do
       has_port "$EXTERNAL_CONFIG_PORTS" "$current_port" || echo "Port ${current_port}"
     done
-    has_port "$EXTERNAL_CONFIG_PORTS" "$PORT" || echo "Port ${PORT}"
   fi
+  # 不论是否换端口,都要保证目标端口至少有一处声明。
+  # 这可以避免重复运行时把本 drop-in 独有的非 22 端口擦掉。
+  has_port "$EXTERNAL_CONFIG_PORTS" "$PORT" || echo "Port ${PORT}"
   cat <<EOF
 PasswordAuthentication no
 PermitRootLogin prohibit-password
@@ -185,6 +182,11 @@ echo "----------------------------"
 [[ "$PW"   == "no" ]]                  || { echo "ABORT: PasswordAuthentication 未关闭(可能被主配置覆盖,检查 /etc/ssh/sshd_config)"; exit 1; }
 [[ "$ROOT" == "prohibit-password" ]]   || { echo "ABORT: PermitRootLogin 未限制"; exit 1; }
 echo " $LISTEN " | grep -q " $PORT "   || { echo "ABORT: 端口 $PORT 未真正监听"; exit 1; }
+
+if [[ "$CHANGE_PORT" == "1" ]] && command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+  echo "UFW active: allowing ${PORT}/tcp"
+  ufw allow "${PORT}/tcp"
+fi
 
 # --- 5. fail2ban -------------------------------------------------------------
 export DEBIAN_FRONTEND=noninteractive
